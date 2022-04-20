@@ -1,0 +1,111 @@
+- hosts: localhost
+  name: Launch EC2 Instance for Docker-ce Installation.
+  vars_files:
+  - keys.yml
+  - /root/ansible-01/vars.yml 
+  tasks:
+  - name: Installing Boto3 Library
+    pip:
+      name: "{{ library }}"
+      state: present
+   
+  - name: Creating Security Group for Using while Launching EC2 Instance
+    ec2_group:
+      name: Docker-SG
+      description: Security Group for allowing port for SSH & HTTP Protocol
+      region: "{{ region_name }}"
+      aws_access_key: "{{ access_key }}"
+      aws_secret_key: "{{ secret_key }}"
+      rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: 0.0.0.0/0
+      - proto: all
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      rules_egress:
+      - proto: all
+        cidr_ip: 0.0.0.0/0
+    vars:
+      ansible_python_interpreter: /bin/python3
+
+  - name: Launching EC2 Instance for Configuring Web Server within Docker Container
+    ec2_instance:
+      region: "{{ region_name }}"
+      image_id: "{{ image_id }}" 
+      instance_type: "{{ instance_type }}"
+      vpc_subnet_id: "{{ vpc_subnet_id }}"
+      security_group: Docker-SG
+      key_name: "{{ private_key }}"
+      name: "{{ instance_name }}"      
+      state: started
+      wait: yes
+      aws_access_key: AKIA2KILMGO4JKHWW3XM
+      aws_secret_key: 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
+    vars:
+      ansible_python_interpreter: /bin/python3
+    register: ec2
+
+  - name: Add new launched instance to host group to Install Docker
+    add_host:
+      name: "{{ item.public_ip_address }}"
+      group: "{{ group_name }}"
+    loop: "{{ ec2.instances }}"
+
+  - name: Staring SSH Protocol for Connectivity with EC2 Instance
+    wait_for:
+      host: "{{ item.public_dns_name }}"
+      port: 22
+      state: started
+    loop: "{{ ec2.instances }}"
+
+- hosts: docker-instance
+  name: Installing Docker-ce Edition on the Top of EC2 Instance
+  tasks:
+  - name: Downloading Pre-Created Reository for Docker-ce
+    get_url: 
+      url: https://download.docker.com/linux/rhel/docker-ce.repo
+      dest: /etc/yum.repos.d/
+
+  - name: Fixing Bug in the Repository. 
+    replace:
+      path: /etc/yum.repos.d/docker-ce.repo
+      regexp: 'rhel'
+      replace: 'centos'
+
+  - name: Installing Docker-ce.
+    package:
+      name: docker-ce
+      state: present
+
+  - name: Install docker SDK for Python
+    pip:
+      name: docker-py
+
+  - name: Starting Docker Service.
+    service:
+      name: docker
+      state: started
+      enabled: yes
+
+  - name: Pull httpd image tfor Launching Web Server
+    docker_image:
+      name: httpd
+      tag: latest
+
+  - name: Launch Container Image to Start Web Server
+    docker_container:
+      name: webserver
+      image: httpd
+      state: started
+      ports:
+      - "8080:80" 
+  
+
+
+
+
+
+
